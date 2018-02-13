@@ -24,7 +24,7 @@ vaddir=`pwd`/mfcc
 sre16_trials=export/docs/trial_ndx
 nnet_dir=exp/xvector_nnet_1a
 
-stage=9
+stage=8
 if [ $stage -le 0 ]; then
   # Path to some, but not all of the training corpora
   #data_root=/export/corpora/LDC
@@ -265,7 +265,7 @@ echo "done stage 7"
 
 
 if [ $stage -le 8 ]; then
-  echo "pass" 
+  
   # Compute the mean vector for centering the evaluation xvectors.
   #$train_cmd exp/xvectors_sre16_major/log/compute_mean.log \
   #  ivector-mean scp:exp/xvectors_sre16_major/xvector.scp \
@@ -305,20 +305,21 @@ if [ $stage -le 8 ]; then
     "ark:ivector-subtract-global-mean scp:exp/xvectors_yiwei_labeled/xvector.scp ark:- |" \
     ark:data/yiwei_labeled/utt2spk exp/xvectors_yiwei_labeled/transform.mat || exit 1;
 
-  # Train an out-of-domain PLDA model.
+  # Train an in-domain PLDA model.
   $train_cmd exp/xvectors_yiwei_labeled/log/plda.log \
     ivector-compute-plda ark:data/yiwei_labeled/spk2utt \
     "ark:ivector-subtract-global-mean scp:exp/xvectors_yiwei_labeled/xvector.scp ark:- | transform-vec exp/xvectors_yiwei_labeled/transform.mat ark:- ark:- | ivector-normalize-length ark:-  ark:- |" \
     exp/xvectors_yiwei_labeled/plda || exit 1;
 
-  # Here we adapt the out-of-domain PLDA model to SRE16 major, a pile
+
+  # Here we adapt the out-of-domain PLDA model to yiwei, a pile
   # of unlabeled in-domain data.  In the future, we will include a clustering
   # based approach for domain adaptation, which tends to work better.
-  #$train_cmd exp/xvectors_sre16_major/log/plda_adapt.log \
-  #  ivector-adapt-plda --within-covar-scale=0.75 --between-covar-scale=0.25 \
-  #  exp/xvectors_sre_combined/plda \
-  #  "ark:ivector-subtract-global-mean scp:exp/xvectors_sre16_major/xvector.scp ark:- | transform-vec exp/xvectors_sre_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
-  #  exp/xvectors_sre16_major/plda_adapt || exit 1;
+  $train_cmd exp/xvectors_yiwei_labeled/log/plda_adapt.log \
+    ivector-adapt-plda --within-covar-scale=0.75 --between-covar-scale=0.25 \
+    exp/xvectors_sre16_major/plda_adapt \
+    "ark:ivector-subtract-global-mean scp:exp/xvectors_yiwei_labeled/xvector.scp ark:- | transform-vec exp/xvectors_sre_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    exp/xvectors_yiwei_labeled/plda_adapt || exit 1;
 
 fi
 
@@ -357,7 +358,7 @@ if [ $stage -le 9 ]; then
   python utils/eval_topn_precision.py export/docs/key_ndx  exp/scores/yiwei_scores_new_mat 
 
 
-  # Get results using the out-of-domain PLDA model.
+  # Get results using the old  out-of-domain PLDA model.
   $train_cmd exp/scores/log/yiwei_scoring.log \
     ivector-plda-scoring --normalize-length=true \
     --num-utts=ark:exp/xvectors_yiwei_enroll/num_utts.ark \
@@ -403,7 +404,7 @@ if [ $stage -le 10 ]; then
   #yue_eer=$(paste $sre16_trials_yue exp/scores/sre16_eval_yue_scores_adapt | awk '{print $6, $3}' | compute-eer - 2>/dev/null)
   #echo "Using Adapted PLDA, EER: Pooled ${pooled_eer}%, Tagalog ${tgl_eer}%, Cantonese ${yue_eer}%"
 
-  ## Get results using the adapted PLDA model.
+  ## Get results using the old adapted PLDA model.
   $train_cmd exp/scores/log/yiwei_scoring_adapt.log \
   ivector-plda-scoring --normalize-length=true \
     --num-utts=ark:exp/xvectors_yiwei_enroll/num_utts.ark \
@@ -416,6 +417,21 @@ if [ $stage -le 10 ]; then
   python utils/eval_topn_precision.py export/docs/key_ndx  exp/scores/yiwei_scores_adapt_mat 
 
   pooled_eer=$(paste $sre16_trials exp/scores/yiwei_scores_adapt | awk '{print $6, $3}' | compute-eer - 2>/dev/null)
+  echo "Using Adapted PLDA, EER: Pooled ${pooled_eer}%"
+ 
+  ## Get results using the adapted PLDA model.
+  $train_cmd exp/scores/log/yiwei_scoring_new_adapt.log \
+  ivector-plda-scoring --normalize-length=true \
+    --num-utts=ark:exp/xvectors_yiwei_enroll/num_utts.ark \
+    "ivector-copy-plda --smoothing=0.0 exp/xvectors_yiwei_labeled/plda_adapt - |" \
+    "ark:ivector-mean ark:data/yiwei_enroll/spk2utt scp:exp/xvectors_yiwei_enroll/xvector.scp ark:- | ivector-subtract-global-mean exp/xvectors_yiwei_labeled/mean.vec ark:- ark:- | transform-vec exp/xvectors_sre_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    "ark:ivector-subtract-global-mean exp/xvectors_yiwei_labeled/mean.vec scp:exp/xvectors_yiwei_test/xvector.scp ark:- | transform-vec exp/xvectors_sre_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    "cat '$sre16_trials' | cut -d\  --fields=1,2 |" exp/scores/yiwei_scores_adapt_new || exit 1;
+
+  python utils/score_format_converter.py exp/scores/yiwei_scores_adapt_new --omat exp/scores/yiwei_scores_adapt_new_mat
+  python utils/eval_topn_precision.py export/docs/key_ndx  exp/scores/yiwei_scores_adapt_new_mat 
+
+  pooled_eer=$(paste $sre16_trials exp/scores/yiwei_scores_adapt_new | awk '{print $6, $3}' | compute-eer - 2>/dev/null)
   echo "Using Adapted PLDA, EER: Pooled ${pooled_eer}%"
   
   #utils/filter_scp.pl $sre16_trials_tgl exp/scores/sre16_eval_scores_adapt > exp/scores/sre16_eval_tgl_scores_adapt
