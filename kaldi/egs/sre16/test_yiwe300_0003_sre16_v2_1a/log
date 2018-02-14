@@ -1,7 +1,0 @@
-nohup: ignoring input
-done stage 0
-done stage 1
-sid/nnet3/xvector/extract_xvectors.sh --cmd run.pl --mem 4G --mem 6G --nj 40 exp/xvector_nnet_1a data/yiwei_labeled exp/xvectors_yiwei_labeled
-sid/nnet3/xvector/extract_xvectors.sh: using exp/xvector_nnet_1a/extract.config to extract xvectors
-sid/nnet3/xvector/extract_xvectors.sh: extracting xvectors for data/yiwei_labeled
-sid/nnet3/xvector/extract_xvectors.sh: extracting xvectors from nnet
